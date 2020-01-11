@@ -49,6 +49,9 @@ class SimpleArbitrageKeeper:
 
         parser = argparse.ArgumentParser("simple-arbitrage-keeper")
 
+        parser.add_argument("--rpc-scheme", type=str, default="http",
+                            help="JSON-RPC scheme (default: `http').Available value:http,https")
+
         parser.add_argument("--rpc-host", type=str, default="localhost",
                             help="JSON-RPC host (default: `localhost')")
 
@@ -88,11 +91,14 @@ class SimpleArbitrageKeeper:
         parser.add_argument("--entry-token", type=str, required=True,
                             help="The token address that the bot starts and ends with in every transaction; checksummed (e.g. '0x12AebC')")
 
+        parser.add_argument("--entry-token-name", type=str, required=True,
+                            help="The token name that the bot starts and ends with in every transaction (e.g. 'SAI', 'DAI',  'WETH', 'REP')")
+
         parser.add_argument("--arb-token", type=str, required=True,
                             help="The token address that arbitraged between both exchanges; checksummed (e.g. '0x12AebC')")
 
         parser.add_argument("--arb-token-name", type=str, required=True,
-                            help="The token name that arbitraged between both exchanges (e.g. 'SAI', 'WETH', 'REP')")
+                            help="The token name that arbitraged between both exchanges (e.g. 'SAI', 'DAI', 'WETH', 'REP')")
 
         parser.add_argument("--min-profit", type=int, required=True,
                             help="Ether amount of minimum profit (in base token) from one arbitrage operation (e.g. 1 for 1 Sai min profit)")
@@ -108,19 +114,21 @@ class SimpleArbitrageKeeper:
 
         self.arguments = parser.parse_args(args)
 
-        self.web3 = kwargs['web3'] if 'web3' in kwargs else Web3(HTTPProvider(endpoint_uri=f"https://{self.arguments.rpc_host}:{self.arguments.rpc_port}",
+        self.web3 = kwargs['web3'] if 'web3' in kwargs else Web3(HTTPProvider(endpoint_uri=f"{self.arguments.rpc_scheme}://{self.arguments.rpc_host}:{self.arguments.rpc_port}",
                                                                               request_kwargs={"timeout": self.arguments.rpc_timeout}))
         self.web3.eth.defaultAccount = self.arguments.eth_from
         register_keys(self.web3, self.arguments.eth_key)
         self.our_address = Address(self.arguments.eth_from)
 
-        self.sai = ERC20Token(web3=self.web3, address=Address('0x89d24a6b4ccb1b6faa2625fe562bdd9a23260359'))  # Mainnet Sai
-        self.dai = ERC20Token(web3=self.web3, address=Address('0x6b175474e89094c44da98b954eedeac495271d0f'))  # Mainnet Dai
+        #self.sai = ERC20Token(web3=self.web3, address=Address('0x89d24a6b4ccb1b6faa2625fe562bdd9a23260359'))  # Mainnet Sai
+        #self.dai = ERC20Token(web3=self.web3, address=Address('0x6b175474e89094c44da98b954eedeac495271d0f'))  # Mainnet Dai
 
-        self.ksai = ERC20Token(web3=self.web3, address=Address('0xC4375B7De8af5a38a93548eb8453a498222C4fF2')) #Kovan Sai
-        self.kdai = ERC20Token(web3=self.web3, address=Address('0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa')) #Kovan Dai
+        #self.ksai = ERC20Token(web3=self.web3, address=Address('0xC4375B7De8af5a38a93548eb8453a498222C4fF2')) #Kovan Sai
+        #self.kdai = ERC20Token(web3=self.web3, address=Address('0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa')) #Kovan Dai
 
         self.entry_token = ERC20Token(web3=self.web3, address=Address(self.arguments.entry_token))
+        self.entry_token.name = self.arguments.entry_token_name \
+            if self.arguments.entry_token_name != 'WETH' else 'ETH'
         self.arb_token = ERC20Token(web3=self.web3, address=Address(self.arguments.arb_token))
         self.arb_token.name = self.arguments.arb_token_name \
             if self.arguments.arb_token_name != 'WETH' else 'ETH'
@@ -133,7 +141,7 @@ class SimpleArbitrageKeeper:
             if self.arguments.uniswap_arb_exchange is not None else None
 
         self.oasis_api_endpoint = OasisAPI(api_server=self.arguments.oasis_api_endpoint,
-                                           entry_token_name=self.token_name(self.entry_token.address),
+                                           entry_token_name=self.entry_token.name,
                                            arb_token_name=self.arb_token.name) \
             if self.arguments.oasis_api_endpoint is not None else None
 
@@ -198,13 +206,13 @@ class SimpleArbitrageKeeper:
             self.tx_manager.approve([self.entry_token, self.arb_token], directly(gas_price=self.gas_price()))
 
 
-    def token_name(self, address: Address) -> str:
-        if address == self.ksai.address or address == self.sai.address:
-            return "SAI"
-        elif address == self.kdai.address or address == self.dai.address:
-            return "DAI"
-        else:
-            return str(address)
+    #def token_name(self, address: Address) -> str:
+    #    if address == self.ksai.address or address == self.sai.address:
+    #        return "SAI"
+    #    elif address == self.kdai.address or address == self.dai.address:
+    #        return "DAI"
+    #    else:
+    #        return str(address)
 
 
     def oasis_order_size(self, size: Wad = None):
@@ -318,7 +326,7 @@ class SimpleArbitrageKeeper:
         self.exit_amount = (highestProfit + self.entry_amount) * Wad.from_number(0.999999)
 
         #Print the highest profit/(loss) to see how close we come to breaking even
-        self.logger.info(f"Best trade regardless of profit/min-profit: {highestProfit} {self.token_name(self.entry_token.address)} "
+        self.logger.info(f"Best trade regardless of profit/min-profit: {highestProfit} {self.entry_token.name} "
                          f"from {self.start_exchange.name} to {self.end_exchange.name}")
 
         opportunity = highestProfit if highestProfit > self.min_profit else None
@@ -332,7 +340,7 @@ class SimpleArbitrageKeeper:
 
     def print_opportunity(self, opportunity: Wad):
         """Print the details of the opportunity."""
-        self.logger.info(f"Profit opportunity of {opportunity} {self.token_name(self.entry_token.address)} "
+        self.logger.info(f"Profit opportunity of {opportunity} {self.entry_token.name} "
                          f"from {self.start_exchange.name} to {self.end_exchange.name}")
 
 
